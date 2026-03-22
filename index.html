@@ -1,105 +1,155 @@
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Camera, Crosshair, Target, Timer, RotateCcw } from "lucide-react";
-import { motion } from "framer-motion";
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>Laser Trainer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      margin: 0;
+      background: #0b0b0b;
+      color: white;
+      font-family: sans-serif;
+      text-align: center;
+    }
+    video, canvas {
+      width: 100%;
+      max-width: 400px;
+      border-radius: 12px;
+    }
+    .hud {
+      display: flex;
+      justify-content: space-around;
+      margin: 10px;
+    }
+    button {
+      padding: 10px 15px;
+      border: none;
+      border-radius: 10px;
+      background: #222;
+      color: white;
+      margin: 5px;
+      cursor: pointer;
+    }
+    .hit {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: red;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
 
-export default function LaserTrainingUI() {
-  const [score, setScore] = useState(0);
-  const [shots, setShots] = useState(0);
-  const [time, setTime] = useState(0);
+<h1>🎯 Laser Trainer</h1>
 
-  const simulateShot = () => {
-    const pts = [10, 8, 5][Math.floor(Math.random() * 3)];
-    setScore(score + pts);
-    setShots(shots + 1);
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<div class="hud">
+  <div>Score: <span id="score">0</span></div>
+  <div>Shots: <span id="shots">0</span></div>
+</div>
+
+<div>
+  <button onclick="startCamera()">Start Camera</button>
+  <button onclick="reset()">Reset</button>
+</div>
+
+<script>
+let video = document.getElementById("video");
+let canvas = document.getElementById("canvas");
+let ctx = canvas.getContext("2d");
+
+let score = 0;
+let shots = 0;
+
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "environment" }
+  });
+  video.srcObject = stream;
+
+  video.onloadedmetadata = () => {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    detect();
   };
-
-  return (
-    <div className="min-h-screen bg-black text-white p-4 grid gap-4">
-
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Target /> Laser Trainer
-        </h1>
-        <div className="text-sm opacity-70">PRO UI</div>
-      </div>
-
-      {/* Camera View */}
-      <Card className="rounded-2xl shadow-xl bg-zinc-900">
-        <CardContent className="p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Camera />
-            <span>Live Camera</span>
-          </div>
-
-          <div className="relative h-[420px] rounded-2xl overflow-hidden bg-black flex items-center justify-center">
-
-            {/* Crosshair */}
-            <Crosshair className="absolute w-20 h-20 text-white opacity-40" />
-
-            {/* Fake Hit Animation */}
-            <motion.div
-              key={shots}
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="absolute w-4 h-4 bg-red-500 rounded-full"
-              style={{
-                left: Math.random() * 90 + "%",
-                top: Math.random() * 90 + "%",
-              }}
-            />
-
-            <div className="text-gray-500">Camera Feed</div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="bg-zinc-900 rounded-2xl">
-          <CardContent className="p-3 text-center">
-            <div className="text-sm opacity-70">Score</div>
-            <div className="text-2xl font-bold">{score}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-zinc-900 rounded-2xl">
-          <CardContent className="p-3 text-center">
-            <div className="text-sm opacity-70">Shots</div>
-            <div className="text-2xl font-bold">{shots}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-zinc-900 rounded-2xl">
-          <CardContent className="p-3 text-center">
-            <div className="text-sm opacity-70 flex justify-center gap-1 items-center">
-              <Timer size={14}/> Time
-            </div>
-            <div className="text-2xl font-bold">{time.toFixed(2)}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Controls */}
-      <div className="grid grid-cols-2 gap-3">
-        <Button onClick={simulateShot} className="rounded-2xl text-lg">
-          ยิง (Test)
-        </Button>
-
-        <Button variant="secondary" className="rounded-2xl">
-          Calibrate
-        </Button>
-
-        <Button variant="outline" className="rounded-2xl">
-          Zones
-        </Button>
-
-        <Button variant="destructive" onClick={() => {setScore(0); setShots(0);}} className="rounded-2xl flex items-center gap-2 justify-center">
-          <RotateCcw size={16}/> Reset
-        </Button>
-      </div>
-    </div>
-  );
 }
+
+function detect() {
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  let frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let data = frame.data;
+
+  let maxR = 0;
+  let hitX = 0;
+  let hitY = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+
+    // ตรวจจับ "laser สีแดง"
+    if (r > 200 && g < 80 && b < 80) {
+      if (r > maxR) {
+        maxR = r;
+        let index = i / 4;
+        hitX = index % canvas.width;
+        hitY = Math.floor(index / canvas.width);
+      }
+    }
+  }
+
+  if (maxR > 200) {
+    registerHit(hitX, hitY);
+  }
+
+  requestAnimationFrame(detect);
+}
+
+function registerHit(x, y) {
+  shots++;
+
+  // scoring zone ง่ายๆ
+  let centerX = canvas.width / 2;
+  let centerY = canvas.height / 2;
+  let dist = Math.hypot(x - centerX, y - centerY);
+
+  let pts = 5;
+  if (dist < 50) pts = 10;
+  else if (dist < 120) pts = 8;
+
+  score += pts;
+
+  document.getElementById("score").innerText = score;
+  document.getElementById("shots").innerText = shots;
+
+  showHit(x, y);
+}
+
+function showHit(x, y) {
+  let dot = document.createElement("div");
+  dot.className = "hit";
+  dot.style.left = x + "px";
+  dot.style.top = y + "px";
+
+  document.body.appendChild(dot);
+  setTimeout(() => dot.remove(), 300);
+}
+
+function reset() {
+  score = 0;
+  shots = 0;
+  document.getElementById("score").innerText = 0;
+  document.getElementById("shots").innerText = 0;
+}
+</script>
+
+</body>
+</html>
