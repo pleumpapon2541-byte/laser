@@ -3,7 +3,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Laser Trainer PRO</title>
+<title>Laser Trainer PRO+</title>
 <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
 <style>
 body { margin:0; background:black; color:white; font-family:sans-serif; text-align:center;}
@@ -19,7 +19,6 @@ button { padding:8px 14px; margin:3px; }
 <div id="ui">
   <div>Score: <span id="score">0</span> | Shots: <span id="shots">0</span></div>
   <button onclick="start()">Start</button>
-  <button onclick="startCalibration()">Calibrate</button>
   <button onclick="reset()">Reset</button>
 </div>
 
@@ -31,18 +30,17 @@ let ctx = canvas.getContext("2d");
 let score=0, shots=0;
 let lastShot=0;
 
-let calibrating=false;
-let points=[];
-let zones=[];
-
 function updateUI(){
  document.getElementById("score").innerText=score;
  document.getElementById("shots").innerText=shots;
 }
 
 async function start(){
- const stream = await navigator.mediaDevices.getUserMedia({video:true});
+ const stream = await navigator.mediaDevices.getUserMedia({
+  video: { facingMode: "environment" }
+ });
  video.srcObject=stream;
+
  video.onloadedmetadata=()=>{
   canvas.width=video.videoWidth;
   canvas.height=video.videoHeight;
@@ -52,60 +50,49 @@ async function start(){
 
 function reset(){ score=0; shots=0; updateUI(); }
 
-function startCalibration(){
- calibrating=true;
- points=[];
- alert("แตะ 4 มุมของเป้า (ซ้ายบน → ขวาบน → ขวาล่าง → ซ้ายล่าง)");
-}
+// 🔥 เพิ่ม Gamma + Brightness
+function enhanceImage(src){
+ cv.convertScaleAbs(src, src, 1.5, 40);
 
-canvas.onclick=(e)=>{
- if(calibrating){
-  points.push([e.offsetX,e.offsetY]);
-  if(points.length==4){
-   calibrating=false;
-   createZones();
-  }
+ let lut = new cv.Mat(1, 256, cv.CV_8U);
+ for (let i = 0; i < 256; i++) {
+  lut.data[i] = Math.pow(i / 255.0, 0.5) * 255;
  }
-}
-
-function createZones(){
- let [p1,p2,p3,p4]=points;
-
- function interp(a,b,t){
-  return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t];
- }
-
- zones = [
-  { score:10, poly:[interp(p1,p3,0.4),interp(p2,p4,0.4),interp(p2,p4,0.6),interp(p1,p3,0.6)] },
-  { score:8,  poly:[p1,p2,p3,p4] },
-  { score:5,  poly:[[0,0],[canvas.width,0],[canvas.width,canvas.height],[0,canvas.height]] }
- ];
-}
-
-function pointInPoly(pt, poly){
- let x=pt[0], y=pt[1], inside=false;
- for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-  let xi=poly[i][0], yi=poly[i][1];
-  let xj=poly[j][0], yj=poly[j][1];
-  let intersect=((yi>y)!=(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi);
-  if(intersect) inside=!inside;
- }
- return inside;
+ cv.LUT(src, lut, src);
+ lut.delete();
 }
 
 function detect(){
  ctx.drawImage(video,0,0);
 
  let src = cv.imread(canvas);
+
+ // 🔥 ปรับภาพให้สว่างขึ้น
+ enhanceImage(src);
+
  let hsv = new cv.Mat();
  cv.cvtColor(src,hsv,cv.COLOR_RGBA2RGB);
  cv.cvtColor(hsv,hsv,cv.COLOR_RGB2HSV);
 
- let low = new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[0,120,120,0]);
- let high = new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[10,255,255,255]);
+ // 🔥 detect แดงกว้างขึ้น
+ let low1 = new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[0,100,100,0]);
+ let high1 = new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[10,255,255,255]);
 
+ let low2 = new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[160,100,100,0]);
+ let high2 = new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[180,255,255,255]);
+
+ let mask1 = new cv.Mat();
+ let mask2 = new cv.Mat();
  let mask = new cv.Mat();
- cv.inRange(hsv,low,high,mask);
+
+ cv.inRange(hsv,low1,high1,mask1);
+ cv.inRange(hsv,low2,high2,mask2);
+ cv.add(mask1, mask2, mask);
+
+ // 🔥 ลด noise
+ let kernel = cv.Mat.ones(3,3,cv.CV_8U);
+ cv.morphologyEx(mask, mask, cv.MORPH_OPEN, kernel);
+ cv.morphologyEx(mask, mask, cv.MORPH_DILATE, kernel);
 
  let contours = new cv.MatVector();
  let hierarchy = new cv.Mat();
@@ -116,7 +103,8 @@ function detect(){
  for(let i=0;i<contours.size();i++){
   let cnt = contours.get(i);
   let area = cv.contourArea(cnt);
-  if(area>maxArea){
+
+  if(area>maxArea && area < 500){ // 🔥 กันแสงหลอก
    let rect = cv.boundingRect(cnt);
    hit=[rect.x+rect.width/2, rect.y+rect.height/2];
    maxArea=area;
@@ -124,21 +112,14 @@ function detect(){
  }
 
  let now=Date.now();
- if(hit && now-lastShot>300){
+
+ if(hit && now-lastShot>250){
   shots++;
+  score+=10;
   lastShot=now;
 
-  let hitScore=0;
-  for(let z of zones){
-   if(pointInPoly(hit,z.poly)){
-    hitScore=z.score;
-    break;
-   }
-  }
-  score+=hitScore;
-
   ctx.beginPath();
-  ctx.arc(hit[0],hit[1],10,0,2*Math.PI);
+  ctx.arc(hit[0],hit[1],12,0,2*Math.PI);
   ctx.strokeStyle="red";
   ctx.lineWidth=3;
   ctx.stroke();
@@ -146,19 +127,11 @@ function detect(){
   updateUI();
  }
 
- // draw zones
- ctx.strokeStyle="yellow";
- for(let z of zones){
-  ctx.beginPath();
-  ctx.moveTo(z.poly[0][0],z.poly[0][1]);
-  for(let p of z.poly) ctx.lineTo(p[0],p[1]);
-  ctx.closePath();
-  ctx.stroke();
- }
-
  src.delete(); hsv.delete(); mask.delete();
+ mask1.delete(); mask2.delete();
  contours.delete(); hierarchy.delete();
- low.delete(); high.delete();
+ low1.delete(); high1.delete();
+ low2.delete(); high2.delete();
 
  requestAnimationFrame(detect);
 }
