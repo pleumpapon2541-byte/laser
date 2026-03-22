@@ -1,153 +1,214 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-  <meta charset="UTF-8">
-  <title>Laser Trainer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body {
-      margin: 0;
-      background: #0b0b0b;
-      color: white;
-      font-family: sans-serif;
-      text-align: center;
-    }
-    video, canvas {
-      width: 100%;
-      max-width: 400px;
-      border-radius: 12px;
-    }
-    .hud {
-      display: flex;
-      justify-content: space-around;
-      margin: 10px;
-    }
-    button {
-      padding: 10px 15px;
-      border: none;
-      border-radius: 10px;
-      background: #222;
-      color: white;
-      margin: 5px;
-      cursor: pointer;
-    }
-    .hit {
-      position: absolute;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: red;
-      pointer-events: none;
-      transform: translate(-50%, -50%);
-      opacity: 0.8;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Laser Trainer PRO</title>
+
+<style>
+body {
+  margin:0;
+  background:#0b0b0b;
+  color:white;
+  font-family:sans-serif;
+  text-align:center;
+}
+h1 { margin:10px; }
+
+.container {
+  position: relative;
+  display: inline-block;
+}
+
+video, canvas {
+  width:100%;
+  max-width:420px;
+  border-radius:12px;
+}
+
+#overlay {
+  position:absolute;
+  top:0;
+  left:0;
+}
+
+.hud {
+  display:flex;
+  justify-content:space-around;
+  margin:10px;
+  flex-wrap:wrap;
+}
+
+button, input {
+  margin:5px;
+  padding:8px;
+  border-radius:10px;
+  border:none;
+}
+
+.hit {
+  position:absolute;
+  width:20px;
+  height:20px;
+  background:red;
+  border-radius:50%;
+  transform:translate(-50%,-50%);
+}
+</style>
 </head>
+
 <body>
 
-<h1>🎯 Laser Trainer</h1>
+<h1>🎯 Laser Trainer PRO</h1>
 
-<video id="video" autoplay playsinline></video>
-<canvas id="canvas"></canvas>
+<div class="container">
+  <video id="video" autoplay playsinline></video>
+  <canvas id="overlay"></canvas>
+</div>
 
 <div class="hud">
   <div>Score: <span id="score">0</span></div>
   <div>Shots: <span id="shots">0</span></div>
+  <div>Acc: <span id="acc">0%</span></div>
+  <div>Time: <span id="time">0.00</span></div>
 </div>
 
 <div>
-  <button onclick="startCamera()">Start Camera</button>
+  <button onclick="startCamera()">Start</button>
+  <button onclick="calibrate()">Calibrate</button>
   <button onclick="reset()">Reset</button>
+</div>
+
+<div>
+  Sensitivity <input type="range" min="150" max="255" value="200" id="sens">
 </div>
 
 <script>
 let video = document.getElementById("video");
-let canvas = document.getElementById("canvas");
+let canvas = document.getElementById("overlay");
 let ctx = canvas.getContext("2d");
 
-let score = 0;
-let shots = 0;
+let score=0, shots=0;
+let centerX=0, centerY=0;
+let lastShot=0;
+let startTime=0;
+let running=false;
 
-async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" }
-  });
+async function startCamera(){
+  const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
   video.srcObject = stream;
 
-  video.onloadedmetadata = () => {
+  video.onloadedmetadata = ()=>{
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    detect();
-  };
+    centerX = canvas.width/2;
+    centerY = canvas.height/2;
+    running = true;
+    startTime = performance.now();
+    loop();
+  }
 }
 
-function detect() {
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  let frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+function calibrate(){
+  centerX = lastX;
+  centerY = lastY;
+}
+
+function reset(){
+  score=0; shots=0;
+  document.getElementById("score").innerText=0;
+  document.getElementById("shots").innerText=0;
+}
+
+let lastX=0,lastY=0;
+
+function loop(){
+  if(!running) return;
+
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
+  let frame = ctx.getImageData(0,0,canvas.width,canvas.height);
   let data = frame.data;
 
-  let maxR = 0;
-  let hitX = 0;
-  let hitY = 0;
+  let maxR=0, x=0,y=0;
+  let sens = document.getElementById("sens").value;
 
-  for (let i = 0; i < data.length; i += 4) {
-    let r = data[i];
-    let g = data[i + 1];
-    let b = data[i + 2];
-
-    // ตรวจจับ "laser สีแดง"
-    if (r > 200 && g < 80 && b < 80) {
-      if (r > maxR) {
-        maxR = r;
-        let index = i / 4;
-        hitX = index % canvas.width;
-        hitY = Math.floor(index / canvas.width);
+  for(let i=0;i<data.length;i+=4){
+    let r=data[i], g=data[i+1], b=data[i+2];
+    if(r>sens && g<80 && b<80){
+      if(r>maxR){
+        maxR=r;
+        let idx=i/4;
+        x=idx%canvas.width;
+        y=Math.floor(idx/canvas.width);
       }
     }
   }
 
-  if (maxR > 200) {
-    registerHit(hitX, hitY);
+  lastX=x; lastY=y;
+
+  drawTarget();
+
+  if(maxR>sens){
+    let now=performance.now();
+    if(now-lastShot>200){ // cooldown
+      shoot(x,y);
+      lastShot=now;
+    }
   }
 
-  requestAnimationFrame(detect);
+  updateTime();
+
+  requestAnimationFrame(loop);
 }
 
-function registerHit(x, y) {
+function drawTarget(){
+  ctx.beginPath();
+  ctx.arc(centerX,centerY,40,0,Math.PI*2);
+  ctx.strokeStyle="red";
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(centerX,centerY,100,0,Math.PI*2);
+  ctx.strokeStyle="yellow";
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(centerX,centerY,160,0,Math.PI*2);
+  ctx.strokeStyle="white";
+  ctx.stroke();
+}
+
+function shoot(x,y){
   shots++;
 
-  // scoring zone ง่ายๆ
-  let centerX = canvas.width / 2;
-  let centerY = canvas.height / 2;
-  let dist = Math.hypot(x - centerX, y - centerY);
+  let dist = Math.hypot(x-centerX,y-centerY);
+  let pts=5;
+  if(dist<40) pts=10;
+  else if(dist<100) pts=8;
 
-  let pts = 5;
-  if (dist < 50) pts = 10;
-  else if (dist < 120) pts = 8;
+  score+=pts;
 
-  score += pts;
+  document.getElementById("score").innerText=score;
+  document.getElementById("shots").innerText=shots;
 
-  document.getElementById("score").innerText = score;
-  document.getElementById("shots").innerText = shots;
+  let acc = (score/(shots*10))*100;
+  document.getElementById("acc").innerText=acc.toFixed(1)+"%";
 
-  showHit(x, y);
+  hitEffect(x,y);
 }
 
-function showHit(x, y) {
-  let dot = document.createElement("div");
-  dot.className = "hit";
-  dot.style.left = x + "px";
-  dot.style.top = y + "px";
-
-  document.body.appendChild(dot);
-  setTimeout(() => dot.remove(), 300);
+function hitEffect(x,y){
+  let d=document.createElement("div");
+  d.className="hit";
+  d.style.left=(x)+"px";
+  d.style.top=(y)+"px";
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(),200);
 }
 
-function reset() {
-  score = 0;
-  shots = 0;
-  document.getElementById("score").innerText = 0;
-  document.getElementById("shots").innerText = 0;
+function updateTime(){
+  let t=(performance.now()-startTime)/1000;
+  document.getElementById("time").innerText=t.toFixed(2);
 }
 </script>
 
