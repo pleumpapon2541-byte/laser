@@ -1,195 +1,105 @@
-<!DOCTYPE html>
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Camera, Crosshair, Target, Timer, RotateCcw } from "lucide-react";
+import { motion } from "framer-motion";
 
-<html>
-<head>
-<meta charset="UTF-8">
-<title>Laser Trainer PRO MAX</title>
-<script async src="https://docs.opencv.org/4.x/opencv.js"></script>
-<style>
-body { margin:0; background:black; color:white; font-family:sans-serif; text-align:center;}
-video, canvas { position:absolute; top:0; left:0; }
-#ui { position:fixed; bottom:10px; left:0; right:0; }
-button { padding:6px 12px; margin:2px; }
-</style>
-</head>
-<body>
+export default function LaserTrainingUI() {
+  const [score, setScore] = useState(0);
+  const [shots, setShots] = useState(0);
+  const [time, setTime] = useState(0);
 
-<video id="video" autoplay playsinline></video> <canvas id="canvas"></canvas>
+  const simulateShot = () => {
+    const pts = [10, 8, 5][Math.floor(Math.random() * 3)];
+    setScore(score + pts);
+    setShots(shots + 1);
+  };
 
-<div id="ui">
-Score: <span id="score">0</span> | Shots: <span id="shots">0</span>
-<br>
-<button onclick="start()">Start</button>
-<button onclick="calibrate()">Calibrate</button>
-<button onclick="reset()">Reset</button>
-</div>
+  return (
+    <div className="min-h-screen bg-black text-white p-4 grid gap-4">
 
-<script>
-let video = document.getElementById("video");
-let canvas = document.getElementById("canvas");
-let ctx = canvas.getContext("2d");
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Target /> Laser Trainer
+        </h1>
+        <div className="text-sm opacity-70">PRO UI</div>
+      </div>
 
-let score=0, shots=0, lastShot=0;
-let points=[], zones=[], hits=[];
-let calibrating=false;
+      {/* Camera View */}
+      <Card className="rounded-2xl shadow-xl bg-zinc-900">
+        <CardContent className="p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Camera />
+            <span>Live Camera</span>
+          </div>
 
-function updateUI(){
- document.getElementById("score").innerText=score;
- document.getElementById("shots").innerText=shots;
+          <div className="relative h-[420px] rounded-2xl overflow-hidden bg-black flex items-center justify-center">
+
+            {/* Crosshair */}
+            <Crosshair className="absolute w-20 h-20 text-white opacity-40" />
+
+            {/* Fake Hit Animation */}
+            <motion.div
+              key={shots}
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="absolute w-4 h-4 bg-red-500 rounded-full"
+              style={{
+                left: Math.random() * 90 + "%",
+                top: Math.random() * 90 + "%",
+              }}
+            />
+
+            <div className="text-gray-500">Camera Feed</div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="bg-zinc-900 rounded-2xl">
+          <CardContent className="p-3 text-center">
+            <div className="text-sm opacity-70">Score</div>
+            <div className="text-2xl font-bold">{score}</div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-zinc-900 rounded-2xl">
+          <CardContent className="p-3 text-center">
+            <div className="text-sm opacity-70">Shots</div>
+            <div className="text-2xl font-bold">{shots}</div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-zinc-900 rounded-2xl">
+          <CardContent className="p-3 text-center">
+            <div className="text-sm opacity-70 flex justify-center gap-1 items-center">
+              <Timer size={14}/> Time
+            </div>
+            <div className="text-2xl font-bold">{time.toFixed(2)}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Controls */}
+      <div className="grid grid-cols-2 gap-3">
+        <Button onClick={simulateShot} className="rounded-2xl text-lg">
+          ยิง (Test)
+        </Button>
+
+        <Button variant="secondary" className="rounded-2xl">
+          Calibrate
+        </Button>
+
+        <Button variant="outline" className="rounded-2xl">
+          Zones
+        </Button>
+
+        <Button variant="destructive" onClick={() => {setScore(0); setShots(0);}} className="rounded-2xl flex items-center gap-2 justify-center">
+          <RotateCcw size={16}/> Reset
+        </Button>
+      </div>
+    </div>
+  );
 }
-
-async function start(){
- const stream = await navigator.mediaDevices.getUserMedia({
-  video:{ facingMode:"environment" }
- });
- video.srcObject=stream;
- video.onloadedmetadata=()=>{
-  canvas.width=video.videoWidth;
-  canvas.height=video.videoHeight;
-  detect();
- }
-}
-
-function reset(){
- score=0; shots=0; hits=[];
- updateUI();
-}
-
-function calibrate(){
- calibrating=true;
- points=[];
- alert("แตะ 4 มุมเป้า");
-}
-
-canvas.onclick=(e)=>{
- if(calibrating){
-  points.push([e.offsetX,e.offsetY]);
-  if(points.length==4){
-   calibrating=false;
-   createZones();
-  }
- }
-}
-
-function interp(a,b,t){
- return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t];
-}
-
-function createZones(){
- let [p1,p2,p3,p4]=points;
-
- zones=[
-  {score:10, poly:[interp(p1,p3,0.45),interp(p2,p4,0.45),interp(p2,p4,0.55),interp(p1,p3,0.55)]},
-  {score:8, poly:[interp(p1,p3,0.2),interp(p2,p4,0.2),interp(p2,p4,0.8),interp(p1,p3,0.8)]},
-  {score:5, poly:[p1,p2,p3,p4]}
- ];
-}
-
-function pointInPoly(pt, poly){
- let x=pt[0], y=pt[1], inside=false;
- for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-  let xi=poly[i][0], yi=poly[i][1];
-  let xj=poly[j][0], yj=poly[j][1];
-  let intersect=((yi>y)!=(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi);
-  if(intersect) inside=!inside;
- }
- return inside;
-}
-
-// 🔥 ปรับภาพ
-function enhance(src){
- cv.convertScaleAbs(src, src, 1.6, 40);
-}
-
-function detect(){
- ctx.drawImage(video,0,0);
-
- let src=cv.imread(canvas);
- enhance(src);
-
- let hsv=new cv.Mat();
- cv.cvtColor(src,hsv,cv.COLOR_RGBA2RGB);
- cv.cvtColor(hsv,hsv,cv.COLOR_RGB2HSV);
-
- let low1=new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[0,100,100,0]);
- let high1=new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[10,255,255,255]);
- let low2=new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[160,100,100,0]);
- let high2=new cv.Mat(hsv.rows,hsv.cols,hsv.type(),[180,255,255,255]);
-
- let mask1=new cv.Mat(), mask2=new cv.Mat(), mask=new cv.Mat();
- cv.inRange(hsv,low1,high1,mask1);
- cv.inRange(hsv,low2,high2,mask2);
- cv.add(mask1,mask2,mask);
-
- let kernel=cv.Mat.ones(3,3,cv.CV_8U);
- cv.morphologyEx(mask,mask,cv.MORPH_OPEN,kernel);
-
- let contours=new cv.MatVector();
- let hierarchy=new cv.Mat();
- cv.findContours(mask,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
-
- let maxArea=0, hit=null;
-
- for(let i=0;i<contours.size();i++){
-  let cnt=contours.get(i);
-  let area=cv.contourArea(cnt);
-  if(area>maxArea && area<600){
-   let rect=cv.boundingRect(cnt);
-   hit=[rect.x+rect.width/2, rect.y+rect.height/2];
-   maxArea=area;
-  }
- }
-
- let now=Date.now();
- if(hit && now-lastShot>250){
-  lastShot=now;
-  shots++;
-
-  let s=0;
-  for(let z of zones){
-   if(pointInPoly(hit,z.poly)){ s=z.score; break; }
-  }
-  score+=s;
-  hits.push(hit);
-
-  updateUI();
- }
-
- // 🔴 วาด hit + grouping
- for(let h of hits){
-  ctx.beginPath();
-  ctx.arc(h[0],h[1],6,0,2*Math.PI);
-  ctx.fillStyle="red";
-  ctx.fill();
- }
-
- // 🟡 วาด zones
- ctx.strokeStyle="yellow";
- for(let z of zones){
-  ctx.beginPath();
-  ctx.moveTo(z.poly[0][0],z.poly[0][1]);
-  for(let p of z.poly) ctx.lineTo(p[0],p[1]);
-  ctx.closePath();
-  ctx.stroke();
- }
-
- // 🔥 heatmap ง่ายๆ
- for(let h of hits){
-  ctx.beginPath();
-  ctx.arc(h[0],h[1],20,0,2*Math.PI);
-  ctx.fillStyle="rgba(255,0,0,0.1)";
-  ctx.fill();
- }
-
- src.delete(); hsv.delete(); mask.delete();
- mask1.delete(); mask2.delete();
- contours.delete(); hierarchy.delete();
- low1.delete(); high1.delete();
- low2.delete(); high2.delete();
-
- requestAnimationFrame(detect);
-}
-</script>
-
-</body>
-</html>
